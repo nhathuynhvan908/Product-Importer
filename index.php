@@ -64,9 +64,9 @@ function handle_csv_import_ajax() {
         $import_type = sanitize_text_field($_POST['import_type']);
 
         // Xử lý logic import
-        handle_csv_import($csv_file_path, $import_type);
+        $import_results = handle_csv_import($csv_file_path, $import_type);
 
-        wp_send_json_success('Import successful.');
+        wp_send_json_success($import_results);
     } else {
         wp_send_json_error('Error uploading file.');
     }
@@ -77,10 +77,10 @@ add_action('wp_ajax_nopriv_handle_csv_import', 'handle_csv_import_ajax');
 function handle_csv_import($csv_file_path, $import_type) {
     global $wpdb;
 
-    $import_result = array(
-        'success' => array(), // Mảng lưu các thông báo thành công
-        'skipped' => array(), // Mảng lưu các thông báo sản phẩm đã bị bỏ qua
-        'errors' => array()   // Mảng lưu các thông báo lỗi
+    $import_results = array(
+        'imports' => true,
+        'success_count' => 0,
+        'errors' => array() 
     );
 
     try {
@@ -90,6 +90,7 @@ function handle_csv_import($csv_file_path, $import_type) {
             throw new Exception('Error opening CSV file.');
         }
 
+        $count_loop = 0;
         while (($data = fgetcsv($file_handle)) !== FALSE) {
             if ($data[2] == 'title') {
                 continue;
@@ -108,7 +109,8 @@ function handle_csv_import($csv_file_path, $import_type) {
             $time = strtotime('tomorrow');
             $rank_math_focus_keyword = $data[9];
 
-            // Kiểm tra xem sản phẩm đã tồn tại dựa trên SKU
+            $flag = 0;
+
             if ($import_type === 'update') {
                 // Trường hợp cập nhật sản phẩm
                 $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
@@ -130,7 +132,9 @@ function handle_csv_import($csv_file_path, $import_type) {
                         );
 
                         if ($check_update === false) {
-                            $response['errors'][] = 'Error updating product: ' . $wpdb->last_error;
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update data';
+                        } else {
+                            $flag++;
                         }
                     }
 
@@ -140,9 +144,9 @@ function handle_csv_import($csv_file_path, $import_type) {
                         if ($existing_price === '') {
                             add_post_meta($existing_product_id, '_price', $product_price);
                             add_post_meta($existing_product_id, '_regular_price', $product_price);
+                            $flag++;
                         } else {
-                            update_post_meta($existing_product_id, '_price', $product_price);
-                            update_post_meta($existing_product_id, '_regular_price', $product_price);
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update price';
                         }
                     }
 
@@ -150,28 +154,54 @@ function handle_csv_import($csv_file_path, $import_type) {
                     if ($image_url !== '') {
                         $image_id = attachment_url_to_postid($image_url);
                         if ($image_id) {
-                            update_post_meta($existing_product_id, '_thumbnail_id', $image_id);
+                            $thub_check = update_post_meta($existing_product_id, '_thumbnail_id', $image_id);
+                            if($thub_check) {
+                                $flag++;
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                            }
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not get image id';
                         }
                     }
 
                     // Cập nhật tags nếu có
                     if (!empty($product_tags)) {
-                        wp_set_post_terms($existing_product_id, $product_tags, 'product_tag');
+                        $tag_check = wp_set_post_terms($existing_product_id, $product_tags, 'product_tag');
+                        if($tag_check) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update tags';
+                        }
                     }
 
                     // Cập nhật categories nếu có
                     if (!empty($product_categories)) {
-                        wp_set_post_terms($existing_product_id, $product_categories, 'product_cat');
+                        $cat_check = wp_set_post_terms($existing_product_id, $product_categories, 'product_cat');
+                        if($cat_check) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update categories';
+                        }
                     }
 
                     // Cập nhật keyword Rank Math nếu có
                     if($rank_math_focus_keyword) {
-                        update_post_meta($existing_product_id, 'rank_math_focus_keyword', $rank_math_focus_keyword);
+                        $rank_math_keyword = update_post_meta($existing_product_id, 'rank_math_focus_keyword', $rank_math_focus_keyword);
+                        if($rank_math_keyword) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update keyword Rank Math';
+                        }
                     }
 
-                    $response['message'] = 'Products updated successfully.';
+                    if($flag > 0) {
+                        $import_results['success_count']++;
+                    } else {
+                        $import_results['errors'][$count_loop][] = 'Product update failed or empty';
+                    }
                 } else {
-                    $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
+                    $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not found.';
                 }
               
             } elseif ($import_type === 'delete') {
@@ -181,10 +211,14 @@ function handle_csv_import($csv_file_path, $import_type) {
                     $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
                     // Nếu tìm thấy sản phẩm, xóa nó
                     if ($existing_product_id) {
-                        wp_delete_post($existing_product_id, true); // True để xóa luôn cả meta data và term relationship
-                        $response['message'] = 'Product with SKU ' . $product_sku . ' deleted successfully.';
+                        $del_check = wp_delete_post($existing_product_id, true); // True để xóa luôn cả meta data và term relationship
+                        if($del_check) {
+                            $import_results['success_count']++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' cannot deleted.';
+                        }
                     } else {
-                        $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
+                        $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not found.';
                     }
                 }
             } elseif ($import_type === 'private') {
@@ -194,14 +228,19 @@ function handle_csv_import($csv_file_path, $import_type) {
                     $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
                     // Nếu tìm thấy sản phẩm, cập nhật thành Private
                     if ($existing_product_id) {
-                        $wpdb->update(
+                        $check_update_status = $wpdb->update(
                             $wpdb->posts,
                             array('post_status' => 'private'),
                             array('ID' => $existing_product_id)
                         );
-                        $response['message'] = 'Product with SKU ' . $product_sku . ' updated to private.';
+
+                        if($check_update_status) {
+                            $import_results['success_count']++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update status to private';
+                        }
                     } else {
-                        $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
+                        $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not found';
                     }
                 }
             } else {
@@ -233,7 +272,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                     // SKU
                     $existing_sku = get_post_meta($product_id, '_sku', true);
                     if ($existing_sku === '') {
-                        $wpdb->query(
+                        $check_sku = $wpdb->query(
                             $wpdb->prepare(
                                 "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
                                 VALUES (%d, %s, %s)",
@@ -242,12 +281,20 @@ function handle_csv_import($csv_file_path, $import_type) {
                                 $product_sku
                             )
                         );
+
+                        if($check_update_status) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update';
+                        }
+                    } else {
+                        $import_results['errors'][$count_loop][] = 'The product already exists SKU '. $product_sku;
                     }
     
                     // Chèn giá sản phẩm
                     $existing_price = get_post_meta($product_id, '_price', true);
                     if ($existing_price === '') {
-                        $wpdb->query(
+                        $check_price = $wpdb->query(
                             $wpdb->prepare(
                                 "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
                                 VALUES (%d, %s, %s)",
@@ -257,7 +304,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                             )
                         );
     
-                        $wpdb->query(
+                        $check_regular_price = $wpdb->query(
                             $wpdb->prepare(
                                 "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
                                 VALUES (%d, %s, %s)",
@@ -266,45 +313,82 @@ function handle_csv_import($csv_file_path, $import_type) {
                                 $product_price
                             )
                         );
+
+                        if($check_price && $check_regular_price) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update price';
+                        }
+                    } else {
+                        $import_results['errors'][$count_loop][] = 'The product already exists price with SKU'. $product_sku;
                     }
     
                     // Chèn hình ảnh từ URL
                     $image_id = attachment_url_to_postid($image_url);
                     if ($image_id) {
-                        update_post_meta($product_id, '_thumbnail_id', $image_id);
+                        $check_thumbnail_id = update_post_meta($product_id, '_thumbnail_id', $image_id);
+                        if($check_thumbnail_id) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                        }
+                    } else {
+                        $import_results['errors'][$count_loop][] = 'Product not found image_id with SKU'. $product_sku;
                     }
     
                     // Chèn tags
-                    foreach ($product_tags as $tag_id) {
-                        if ($tag_id) {
-                            $existing_relationship_tag = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_tag'", $tag_id));
-                            if ($existing_relationship_tag) {
-                                $wpdb->query(
-                                    $wpdb->prepare(
-                                        "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
-                                        VALUES (%d, %d)",
-                                        $product_id,
-                                        $existing_relationship_tag
-                                    )
-                                );
+                    if(!empty($product_tags)) {
+                        $flag_tags = 0;
+                        foreach ($product_tags as $tag_id) {
+                            if ($tag_id) {
+                                $existing_relationship_tag = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_tag'", $tag_id));
+                                if ($existing_relationship_tag) {
+                                    $wpdb->query(
+                                        $wpdb->prepare(
+                                            "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
+                                            VALUES (%d, %d)",
+                                            $product_id,
+                                            $existing_relationship_tag
+                                        )
+                                    );
+
+                                    $flag_tags++;
+                                }
                             }
                         }
-                    }
-    
+
+                        if($flag_tags > 0) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update tags';
+                        }
+                    } 
+                    
                     // Chèn categories
-                    foreach ($product_categories as $category_id) {
-                        if ($category_id) {
-                            $existing_relationship_cat = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_cat'", $category_id));
-                            if ($existing_relationship_cat) {
-                                $wpdb->query(
-                                    $wpdb->prepare(
-                                        "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
-                                        VALUES (%d, %d)",
-                                        $product_id,
-                                        $existing_relationship_cat
-                                    )
-                                );
+                    if(!empty($product_categories)) {
+                        $flag_cat = 0;
+                        foreach ($product_categories as $category_id) {
+                            if ($category_id) {
+                                $existing_relationship_cat = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_cat'", $category_id));
+                                if ($existing_relationship_cat) {
+                                    $wpdb->query(
+                                        $wpdb->prepare(
+                                            "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
+                                            VALUES (%d, %d)",
+                                            $product_id,
+                                            $existing_relationship_cat
+                                        )
+                                    );
+
+                                    $flag_cat++;
+                                }
                             }
+                        }
+
+                        if($flag_tags > 0) {
+                            $flag++;
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update categories';
                         }
                     }
     
@@ -322,19 +406,27 @@ function handle_csv_import($csv_file_path, $import_type) {
                     }
 
                     $wpdb->query('COMMIT');
-                    $import_results['success']++;
+
+                    if($flag > 0) {
+                        $import_results['success_count']++;
+                    } else {
+                        $import_results['errors'][$count_loop][] = 'Product update failed or empty';
+                    }
                 } else {
+                    $import_results['errors'][$count_loop][] = "Error inserting product: $product_name";
+
                     // Lỗi khi chèn bài viết
                     $wpdb->query('ROLLBACK');
-                    $import_results['errors'][] = "Error inserting product: $product_name";
                 }
             }
         }
 
+        $count_loop++;
         fclose($file_handle);
         return $import_results; // Trả về thông tin kết quả import
     } catch (Exception $e) {
-        $import_results['errors'][] = "Error: " . $e->getMessage();
+        $import_results['imports'] = false;
+        $import_results['errors'] = "Error: " . $e->getMessage();
         return $import_results; // Trả về thông tin kết quả import với lỗi
     }
 }

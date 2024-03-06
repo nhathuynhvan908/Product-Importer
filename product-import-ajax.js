@@ -17,10 +17,14 @@ jQuery(document).ready(function($) {
             },
             success: function(response) {
                 // Xử lý kết quả sau khi upload thành công
-                if (response.success) {
-                    $('#upload_status').html('<i class="fas fa-check-circle"></i> Import completed successfully.');
+                if (response.imports) {
+                    if (response.success) {
+                        $('#upload_status').html('<i class="fas fa-check-circle"></i> Import completed successfully.');
+                    } else {
+                        $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + response.data);
+                    }
                 } else {
-                    $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + response.data);
+                    $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + response.errors);
                 }
                 console.log(response);
             },
