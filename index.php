@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Product Importer
  * Description: Simple CSV Product Importer
- * Version: 1.4
+ * Version: 1.5
  * Author: Huỳnh Văn Nhật
  * Author URI: http://nhathuynhvan.com/
 */
@@ -77,6 +77,12 @@ add_action('wp_ajax_nopriv_handle_csv_import', 'handle_csv_import_ajax');
 function handle_csv_import($csv_file_path, $import_type) {
     global $wpdb;
 
+    $import_result = array(
+        'success' => array(), // Mảng lưu các thông báo thành công
+        'skipped' => array(), // Mảng lưu các thông báo sản phẩm đã bị bỏ qua
+        'errors' => array()   // Mảng lưu các thông báo lỗi
+    );
+
     try {
       
         $file_handle = fopen($csv_file_path, 'r');
@@ -122,6 +128,10 @@ function handle_csv_import($csv_file_path, $import_type) {
                             $update_data,
                             array('ID' => $existing_product_id)
                         );
+
+                        if ($check_update === false) {
+                            $response['errors'][] = 'Error updating product: ' . $wpdb->last_error;
+                        }
                     }
 
                     // Cập nhật giá sản phẩm nếu có giá trị
@@ -158,6 +168,10 @@ function handle_csv_import($csv_file_path, $import_type) {
                     if($rank_math_focus_keyword) {
                         update_post_meta($existing_product_id, 'rank_math_focus_keyword', $rank_math_focus_keyword);
                     }
+
+                    $response['message'] = 'Products updated successfully.';
+                } else {
+                    $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
                 }
               
             } elseif ($import_type === 'delete') {
@@ -168,7 +182,9 @@ function handle_csv_import($csv_file_path, $import_type) {
                     // Nếu tìm thấy sản phẩm, xóa nó
                     if ($existing_product_id) {
                         wp_delete_post($existing_product_id, true); // True để xóa luôn cả meta data và term relationship
-                        continue; // Đi đến sản phẩm tiếp theo trong CSV
+                        $response['message'] = 'Product with SKU ' . $product_sku . ' deleted successfully.';
+                    } else {
+                        $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
                     }
                 }
             } elseif ($import_type === 'private') {
@@ -183,10 +199,16 @@ function handle_csv_import($csv_file_path, $import_type) {
                             array('post_status' => 'private'),
                             array('ID' => $existing_product_id)
                         );
-                        continue; // Đi đến sản phẩm tiếp theo trong CSV
+                        $response['message'] = 'Product with SKU ' . $product_sku . ' updated to private.';
+                    } else {
+                        $response['errors'][] = 'Product with SKU ' . $product_sku . ' not found.';
                     }
                 }
             } else {
+
+                // Bắt đầu giao dịch
+                $wpdb->query('START TRANSACTION');
+
                 // Bắt đầu giao dịch
                 $sql = $wpdb->prepare(
                     "INSERT INTO {$wpdb->posts} (post_title, post_content, post_excerpt, post_status, post_type, post_name, post_modified, post_modified_gmt, post_date_gmt, post_date)
@@ -298,14 +320,22 @@ function handle_csv_import($csv_file_path, $import_type) {
                             )
                         );
                     }
+
+                    $wpdb->query('COMMIT');
+                    $import_results['success']++;
+                } else {
+                    // Lỗi khi chèn bài viết
+                    $wpdb->query('ROLLBACK');
+                    $import_results['errors'][] = "Error inserting product: $product_name";
                 }
             }
         }
 
         fclose($file_handle);
-        return true; // Trả về true khi import thành công
+        return $import_results; // Trả về thông tin kết quả import
     } catch (Exception $e) {
-        return false; // Trả về false nếu có lỗi
+        $import_results['errors'][] = "Error: " . $e->getMessage();
+        return $import_results; // Trả về thông tin kết quả import với lỗi
     }
 }
 
