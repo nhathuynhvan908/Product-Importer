@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Product Importer
  * Description: Simple CSV Product Importer
- * Version: 1.3
+ * Version: 1.4
  * Author: Huỳnh Văn Nhật
  * Author URI: http://nhathuynhvan.com/
 */
@@ -18,8 +18,10 @@ function product_import_page() {
             <br>
             <label for="import_type">Import Type:</label>
             <select name="import_type" id="import_type">
-                <option value="new">Import New Products</option>
-                <option value="update">Update Existing Products</option>
+                <option value="new">Import New</option>
+                <option value="update">Update Existing</option>
+                <option value="private">Private Existing</option>
+                <option value="delete">Delete Existing</option>
             </select>
             <?php wp_nonce_field('product_import_nonce', 'product_import_nonce'); ?>
             <input type="submit" name="import_products" id="import_products" value="Import Products">
@@ -158,6 +160,32 @@ function handle_csv_import($csv_file_path, $import_type) {
                     }
                 }
               
+            } elseif ($import_type === 'delete') {
+                // Trường hợp xóa sản phẩm
+                if(!empty($product_sku)) {
+                    // Tìm ID của sản phẩm dựa trên SKU
+                    $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
+                    // Nếu tìm thấy sản phẩm, xóa nó
+                    if ($existing_product_id) {
+                        wp_delete_post($existing_product_id, true); // True để xóa luôn cả meta data và term relationship
+                        continue; // Đi đến sản phẩm tiếp theo trong CSV
+                    }
+                }
+            } elseif ($import_type === 'private') {
+                // Trường hợp cập nhập status sản phẩm thành Private
+                if(!empty($product_sku)) {
+                    // Tìm ID của sản phẩm dựa trên SKU
+                    $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
+                    // Nếu tìm thấy sản phẩm, cập nhật thành Private
+                    if ($existing_product_id) {
+                        $wpdb->update(
+                            $wpdb->posts,
+                            array('post_status' => 'private'),
+                            array('ID' => $existing_product_id)
+                        );
+                        continue; // Đi đến sản phẩm tiếp theo trong CSV
+                    }
+                }
             } else {
                 // Bắt đầu giao dịch
                 $sql = $wpdb->prepare(
