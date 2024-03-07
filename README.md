@@ -7,6 +7,8 @@ Currently you can import: Type, SKU, Title, Images, Regular Price, Tags, Categor
 
 The plugin's goal is to be fast, lightweight, and easy to use.
 
+![Screenshot](/screenshots.png)
+
 ## Features
 - **Import New Products:** Easily add new products to your WooCommerce store by uploading a CSV file.
 - **Update Existing Products:** Update existing product details by providing a CSV file with updated information. The plugin checks for unique SKUs to ensure accurate updates.
