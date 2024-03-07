@@ -262,190 +262,194 @@ function handle_csv_import($csv_file_path, $import_type) {
                     }
                 }
             } else {
+                $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
+                if($existing_product_id) {
+                    $import_results['errors'][$count_loop][] = 'Duplicates with SKUs ' . $product_sku . ' should be ignored and not imported.';
+                } else {
+                    // Start trading
+                    $wpdb->query('START TRANSACTION');
 
-                // Start trading
-                $wpdb->query('START TRANSACTION');
+                    $sql = $wpdb->prepare(
+                        "INSERT INTO {$wpdb->posts} (post_title, post_content, post_excerpt, post_status, post_type, post_name, post_modified, post_modified_gmt, post_date_gmt, post_date)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        $product_name,
+                        $product_description,
+                        $product_short_description,
+                        'publish',
+                        'product',
+                        $post_name,
+                        date("Y-m-d H:i:s"),
+                        date("Y-m-d H:i:s"),
+                        date("Y-m-d H:i:s"),
+                        date("Y-m-d H:i:s"),
+                    );
+        
+                    $wpdb->query($sql);
+        
+                    $product_id = $wpdb->insert_id;
+        
+                    if ($product_id) {
+                        // SKU
+                        $existing_sku = get_post_meta($product_id, '_sku', true);
+                        if ($existing_sku === '') {
+                            $check_sku = $wpdb->query(
+                                $wpdb->prepare(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                                    VALUES (%d, %s, %s)",
+                                    $product_id,
+                                    '_sku',
+                                    $product_sku
+                                )
+                            );
 
-                $sql = $wpdb->prepare(
-                    "INSERT INTO {$wpdb->posts} (post_title, post_content, post_excerpt, post_status, post_type, post_name, post_modified, post_modified_gmt, post_date_gmt, post_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    $product_name,
-                    $product_description,
-                    $product_short_description,
-                    'publish',
-                    'product',
-                    $post_name,
-                    date("Y-m-d H:i:s"),
-                    date("Y-m-d H:i:s"),
-                    date("Y-m-d H:i:s"),
-                    date("Y-m-d H:i:s"),
-                );
-    
-                $wpdb->query($sql);
-    
-                $product_id = $wpdb->insert_id;
-    
-                if ($product_id) {
-                    // SKU
-                    $existing_sku = get_post_meta($product_id, '_sku', true);
-                    if ($existing_sku === '') {
-                        $check_sku = $wpdb->query(
-                            $wpdb->prepare(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                                VALUES (%d, %s, %s)",
-                                $product_id,
-                                '_sku',
-                                $product_sku
-                            )
-                        );
-
-                        if($check_sku) {
-                            $flag++;
-                        } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update sku';
-                        }
-                    } else {
-                        $import_results['errors'][$count_loop][] = 'The product already exists SKU '. $product_sku;
-                    }
-    
-                    // Insert product price
-                    $existing_price = get_post_meta($product_id, '_price', true);
-                    if ($existing_price === '') {
-                        $check_price = $wpdb->query(
-                            $wpdb->prepare(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                                VALUES (%d, %s, %s)",
-                                $product_id,
-                                '_price',
-                                $product_price
-                            )
-                        );
-    
-                        $check_regular_price = $wpdb->query(
-                            $wpdb->prepare(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                                VALUES (%d, %s, %s)",
-                                $product_id,
-                                '_regular_price',
-                                $product_price
-                            )
-                        );
-
-                        if($check_price && $check_regular_price) {
-                            $flag++;
-                        } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update price';
-                        }
-                    } else {
-                        $import_results['errors'][$count_loop][] = 'The product already exists price with SKU'. $product_sku;
-                    }
-    
-                    // Insert image from URL
-                    $image_id = attachment_url_to_postid($image_url);
-                    if ($image_id) {
-                        $image_post = $wpdb->get_row(
-                            $wpdb->prepare(
-                                "SELECT * FROM {$wpdb->posts} WHERE ID = %d AND post_type = %s",
-                                $image_id,
-                                'attachment'
-                            )
-                        );
-
-                        if ($image_post) {
-                            $check_thumbnail_id = update_post_meta($product_id, '_thumbnail_id', $image_id);
-                            if($check_thumbnail_id) {
+                            if($check_sku) {
                                 $flag++;
                             } else {
-                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update sku';
                             }
                         } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . 'Invalid image URL or not an attachment';
+                            $import_results['errors'][$count_loop][] = 'The product already exists SKU '. $product_sku;
                         }
-                    } else {
-                        $import_results['errors'][$count_loop][] = 'Product not found image_id with SKU'. $product_sku;
-                    }
-    
-                    // Insert tags
-                    if(!empty($product_tags)) {
-                        $flag_tags = 0;
-                        foreach ($product_tags as $tag_id) {
-                            if ($tag_id) {
-                                $existing_relationship_tag = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_tag'", $tag_id));
-                                if ($existing_relationship_tag) {
-                                    $wpdb->query(
-                                        $wpdb->prepare(
-                                            "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
-                                            VALUES (%d, %d)",
-                                            $product_id,
-                                            $existing_relationship_tag
-                                        )
-                                    );
+        
+                        // Insert product price
+                        $existing_price = get_post_meta($product_id, '_price', true);
+                        if ($existing_price === '') {
+                            $check_price = $wpdb->query(
+                                $wpdb->prepare(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                                    VALUES (%d, %s, %s)",
+                                    $product_id,
+                                    '_price',
+                                    $product_price
+                                )
+                            );
+        
+                            $check_regular_price = $wpdb->query(
+                                $wpdb->prepare(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                                    VALUES (%d, %s, %s)",
+                                    $product_id,
+                                    '_regular_price',
+                                    $product_price
+                                )
+                            );
 
-                                    $flag_tags++;
+                            if($check_price && $check_regular_price) {
+                                $flag++;
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update price';
+                            }
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'The product already exists price with SKU'. $product_sku;
+                        }
+        
+                        // Insert image from URL
+                        $image_id = attachment_url_to_postid($image_url);
+                        if ($image_id) {
+                            $image_post = $wpdb->get_row(
+                                $wpdb->prepare(
+                                    "SELECT * FROM {$wpdb->posts} WHERE ID = %d AND post_type = %s",
+                                    $image_id,
+                                    'attachment'
+                                )
+                            );
+
+                            if ($image_post) {
+                                $check_thumbnail_id = update_post_meta($product_id, '_thumbnail_id', $image_id);
+                                if($check_thumbnail_id) {
+                                    $flag++;
+                                } else {
+                                    $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                                }
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . 'Invalid image URL or not an attachment';
+                            }
+                        } else {
+                            $import_results['errors'][$count_loop][] = 'Product not found image_id with SKU'. $product_sku;
+                        }
+        
+                        // Insert tags
+                        if(!empty($product_tags)) {
+                            $flag_tags = 0;
+                            foreach ($product_tags as $tag_id) {
+                                if ($tag_id) {
+                                    $existing_relationship_tag = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_tag'", $tag_id));
+                                    if ($existing_relationship_tag) {
+                                        $wpdb->query(
+                                            $wpdb->prepare(
+                                                "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
+                                                VALUES (%d, %d)",
+                                                $product_id,
+                                                $existing_relationship_tag
+                                            )
+                                        );
+
+                                        $flag_tags++;
+                                    }
                                 }
                             }
-                        }
 
-                        if($flag_tags > 0) {
-                            $flag++;
-                        } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update tags';
-                        }
-                    } 
-                    
-                    // Insert categories
-                    if(!empty($product_categories)) {
-                        $flag_cat = 0;
-                        foreach ($product_categories as $category_id) {
-                            if ($category_id) {
-                                $existing_relationship_cat = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_cat'", $category_id));
-                                if ($existing_relationship_cat) {
-                                    $wpdb->query(
-                                        $wpdb->prepare(
-                                            "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
-                                            VALUES (%d, %d)",
-                                            $product_id,
-                                            $existing_relationship_cat
-                                        )
-                                    );
+                            if($flag_tags > 0) {
+                                $flag++;
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update tags';
+                            }
+                        } 
+                        
+                        // Insert categories
+                        if(!empty($product_categories)) {
+                            $flag_cat = 0;
+                            foreach ($product_categories as $category_id) {
+                                if ($category_id) {
+                                    $existing_relationship_cat = $wpdb->get_var($wpdb->prepare("SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'product_cat'", $category_id));
+                                    if ($existing_relationship_cat) {
+                                        $wpdb->query(
+                                            $wpdb->prepare(
+                                                "INSERT INTO {$wpdb->term_relationships} (object_id, term_taxonomy_id)
+                                                VALUES (%d, %d)",
+                                                $product_id,
+                                                $existing_relationship_cat
+                                            )
+                                        );
 
-                                    $flag_cat++;
+                                        $flag_cat++;
+                                    }
                                 }
                             }
+
+                            if($flag_tags > 0) {
+                                $flag++;
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update categories';
+                            }
+                        }
+        
+                        // Update keyword rank math
+                        if ($rank_math_focus_keyword) {
+                            $wpdb->query(
+                                $wpdb->prepare(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                                    VALUES (%d, %s, %s)",
+                                    $product_id,
+                                    'rank_math_focus_keyword',
+                                    $rank_math_focus_keyword
+                                )
+                            );
                         }
 
-                        if($flag_tags > 0) {
-                            $flag++;
+                        $wpdb->query('COMMIT');
+
+                        if($flag > 0) {
+                            $import_results['success_count']++;
                         } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update categories';
+                            $import_results['errors'][$count_loop][] = 'Product update failed or empty';
                         }
-                    }
-    
-                    // Update keyword rank math
-                    if ($rank_math_focus_keyword) {
-                        $wpdb->query(
-                            $wpdb->prepare(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                                VALUES (%d, %s, %s)",
-                                $product_id,
-                                'rank_math_focus_keyword',
-                                $rank_math_focus_keyword
-                            )
-                        );
-                    }
-
-                    $wpdb->query('COMMIT');
-
-                    if($flag > 0) {
-                        $import_results['success_count']++;
                     } else {
-                        $import_results['errors'][$count_loop][] = 'Product update failed or empty';
-                    }
-                } else {
-                    $import_results['errors'][$count_loop][] = "Error inserting product: $product_name";
+                        $import_results['errors'][$count_loop][] = "Error inserting product: $product_name";
 
-                    // ROLLBACK again when Error inserting product
-                    $wpdb->query('ROLLBACK');
+                        // ROLLBACK again when Error inserting product
+                        $wpdb->query('ROLLBACK');
+                    }
                 }
             }
         }
