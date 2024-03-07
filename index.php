@@ -38,26 +38,26 @@ function product_import_page() {
 add_shortcode('product_import', 'product_import_page');
 
 function handle_csv_import_ajax() {
-    // Kiểm tra nonce để đảm bảo tính xác thực
+    // Check the nonce to ensure authenticity
     if (!isset($_POST['product_import_nonce']) || !wp_verify_nonce($_POST['product_import_nonce'], 'product_import_nonce')) {
         wp_send_json_error('Security check failed!');
     }
 
-    // Kiểm tra quyền truy cập
+    // Check access permissions
     if (!current_user_can('manage_options')) {
         wp_send_json_error('Permission denied!');
     }
 
-    // Kiểm tra xem có quá trình xử lý đang diễn ra không
+    // Check if there is processing going on
     if (get_transient('product_import_processing')) {
         wp_send_json_error('Import is currently in progress. Please wait until it completes.');
     }
 
-    // Kiểm tra file đã được chọn hay chưa
+    // Check if the file is selected or not
     if (isset($_FILES['csv_file']['error']) && $_FILES['csv_file']['error'] === UPLOAD_ERR_OK) {
         $csv_file_path = wp_normalize_path($_FILES['csv_file']['tmp_name']);
 
-        // Kiểm tra loại file
+        // Check file type
         $file_info = wp_check_filetype(basename($_FILES['csv_file']['name']));
         if ($file_info['ext'] !== 'csv') {
             wp_send_json_error('Invalid file type. Please upload a CSV file.');
@@ -65,7 +65,7 @@ function handle_csv_import_ajax() {
 
         $import_type = sanitize_text_field($_POST['import_type']);
 
-        // Xử lý logic import
+        //Handles import logic
         $import_results = handle_csv_import($csv_file_path, $import_type);
 
         wp_send_json_success($import_results);
@@ -125,17 +125,17 @@ function handle_csv_import($csv_file_path, $import_type) {
             $flag = 0;
 
             if ($import_type === 'update') {
-                // Trường hợp cập nhật sản phẩm
+                // In case of product updates
                 $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
                 if($existing_product_id) {
-                    // Cập nhật thông tin sản phẩm
+                    // Update product information
                     $update_data = array(
                         'post_title' => $product_name,
                         'post_content' => $product_description,
                         'post_excerpt' => $product_short_description,
                     );
 
-                    $update_data = array_filter($update_data); // Loại bỏ các trường có giá trị null
+                    $update_data = array_filter($update_data); // Remove fields with null values
                     
                     if (!empty($update_data)) {
                         $check_update = $wpdb->update(
@@ -151,7 +151,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     }
 
-                    // Cập nhật giá sản phẩm nếu có giá trị
+                    // Update product price if valid
                     if ($product_price !== '') {
                         $existing_price = get_post_meta($existing_product_id, '_price', true);
                         if ($existing_price === '') {
@@ -163,7 +163,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     }
 
-                    // Cập nhật hình ảnh từ URL nếu có
+                    // Update images from URL if available
                     if ($image_url !== '') {
                         $image_id = attachment_url_to_postid($image_url);
                         if ($image_id1) {
@@ -183,7 +183,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     }
 
-                    // Cập nhật tags nếu có
+                    // Update tags if any
                     if (!empty($product_tags)) {
                         $tag_check = wp_set_post_terms($existing_product_id, $product_tags, 'product_tag');
                         if($tag_check) {
@@ -193,7 +193,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     }
 
-                    // Cập nhật categories nếu có
+                    // Update categories if any
                     if (!empty($product_categories)) {
                         $cat_check = wp_set_post_terms($existing_product_id, $product_categories, 'product_cat');
                         if($cat_check) {
@@ -203,7 +203,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     }
 
-                    // Cập nhật keyword Rank Math nếu có
+                    // Update keyword Rank Math if any
                     if($rank_math_focus_keyword) {
                         $rank_math_keyword = update_post_meta($existing_product_id, 'rank_math_focus_keyword', $rank_math_focus_keyword);
                         if($rank_math_keyword) {
@@ -223,13 +223,13 @@ function handle_csv_import($csv_file_path, $import_type) {
                 }
               
             } elseif ($import_type === 'delete') {
-                // Trường hợp xóa sản phẩm
+                // In case of product deletion
                 if(!empty($product_sku)) {
-                    // Tìm ID của sản phẩm dựa trên SKU
+                    // Find product ID based on SKU
                     $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
-                    // Nếu tìm thấy sản phẩm, xóa nó
+                    // If the product is found, delete it
                     if ($existing_product_id) {
-                        $del_check = wp_delete_post($existing_product_id, true); // True để xóa luôn cả meta data và term relationship
+                        $del_check = wp_delete_post($existing_product_id, true); // True to delete both meta data and term relationships
                         if($del_check) {
                             $import_results['success_count']++;
                         } else {
@@ -240,11 +240,11 @@ function handle_csv_import($csv_file_path, $import_type) {
                     }
                 }
             } elseif ($import_type === 'private') {
-                // Trường hợp cập nhập status sản phẩm thành Private
+                // In case of updating product status to Private
                 if(!empty($product_sku)) {
-                    // Tìm ID của sản phẩm dựa trên SKU
+                    // Find product ID based on SKU
                     $existing_product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $product_sku));
-                    // Nếu tìm thấy sản phẩm, cập nhật thành Private
+                    // If the product is found, update it to Private
                     if ($existing_product_id) {
                         $check_update_status = $wpdb->update(
                             $wpdb->posts,
@@ -263,10 +263,9 @@ function handle_csv_import($csv_file_path, $import_type) {
                 }
             } else {
 
-                // Bắt đầu giao dịch
+                // Start trading
                 $wpdb->query('START TRANSACTION');
 
-                // Bắt đầu giao dịch
                 $sql = $wpdb->prepare(
                     "INSERT INTO {$wpdb->posts} (post_title, post_content, post_excerpt, post_status, post_type, post_name, post_modified, post_modified_gmt, post_date_gmt, post_date)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
@@ -309,7 +308,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         $import_results['errors'][$count_loop][] = 'The product already exists SKU '. $product_sku;
                     }
     
-                    // Chèn giá sản phẩm
+                    // Insert product price
                     $existing_price = get_post_meta($product_id, '_price', true);
                     if ($existing_price === '') {
                         $check_price = $wpdb->query(
@@ -341,7 +340,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         $import_results['errors'][$count_loop][] = 'The product already exists price with SKU'. $product_sku;
                     }
     
-                    // Chèn hình ảnh từ URL
+                    // Insert image from URL
                     $image_id = attachment_url_to_postid($image_url);
                     if ($image_id) {
                         $image_post = $wpdb->get_row(
@@ -366,7 +365,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         $import_results['errors'][$count_loop][] = 'Product not found image_id with SKU'. $product_sku;
                     }
     
-                    // Chèn tags
+                    // Insert tags
                     if(!empty($product_tags)) {
                         $flag_tags = 0;
                         foreach ($product_tags as $tag_id) {
@@ -394,7 +393,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                         }
                     } 
                     
-                    // Chèn categories
+                    // Insert categories
                     if(!empty($product_categories)) {
                         $flag_cat = 0;
                         foreach ($product_categories as $category_id) {
@@ -445,7 +444,7 @@ function handle_csv_import($csv_file_path, $import_type) {
                 } else {
                     $import_results['errors'][$count_loop][] = "Error inserting product: $product_name";
 
-                    // Lỗi khi chèn bài viết
+                    // ROLLBACK again when Error inserting product
                     $wpdb->query('ROLLBACK');
                 }
             }
@@ -453,11 +452,11 @@ function handle_csv_import($csv_file_path, $import_type) {
 
         $count_loop++;
         fclose($file_handle);
-        return $import_results; // Trả về thông tin kết quả import
+        return $import_results; // Returns import result information
     } catch (Exception $e) {
         $import_results['imports'] = false;
         $import_results['errors'][][] = "Error: " . $e->getMessage();
-        return $import_results; // Trả về thông tin kết quả import với lỗi
+        return $import_results; // Returns import result information with errors
     }
 }
 

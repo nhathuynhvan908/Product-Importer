@@ -12,18 +12,18 @@ jQuery(document).ready(function($) {
             contentType: false,
             processData: false,
             beforeSend: function() {
-                // Hiển thị thông báo hoặc tiến trình loading
+                // Show notifications or loading progress
                 $('#upload_status').html('<i class="fas fa-spinner fa-spin"></i> Uploading...');
                 $('#import_result').html('');
                 $('#import_errors').html('');
             },
             success: function(response) {
-                // Xử lý kết quả sau khi upload thành công
+                // Process results after successful upload
                 $('#upload_status').html('<i class="fas fa-check-circle"></i> Import completed successfully.');
-                //console.log(response); // Log response để kiểm tra trong console
+                //console.log(response); // Log response to check in console
                 
                 if (response.success) {
-                    // Xử lý khi thành công
+                    // Process when successful
                     var data = response.data;
                     var success_count = data.success_count;
                     var errors = data.errors;
@@ -43,12 +43,12 @@ jQuery(document).ready(function($) {
                         $('#import_errors').html(errorHtml);
                     }
                 } else {
-                    // Hiển thị lỗi chi tiết
+                    // Show detailed errors
                     $('#upload_status').html('<i class="fas fa-exclamation-circle"></i>Error: '+ response.data);
                 }
             },
             error: function(xhr, status, error) {
-                // Xử lý lỗi
+                // Error handling
                 $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + xhr.responseText);
                 console.log(xhr.responseText);
             }
