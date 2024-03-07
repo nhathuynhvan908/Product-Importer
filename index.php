@@ -27,6 +27,8 @@ function product_import_page() {
             <input type="submit" name="import_products" id="import_products" value="Import Products">
         </form>
         <div id="upload_status"></div>
+        <div id="import_result"></div>
+        <div id="import_errors"></div>
     </div>
 
     <?php
@@ -99,11 +101,22 @@ function handle_csv_import($csv_file_path, $import_type) {
             $product_name = sanitize_text_field($data[2]);
             $product_description = iconv(mb_detect_encoding($data[7], mb_detect_order(), true), "UTF-8", $data[7]);
             $product_short_description = iconv(mb_detect_encoding($data[8], mb_detect_order(), true), "UTF-8", $data[8]);
-            $product_price = number_format($data[4], 2);
+            $product_price = number_format($data[4], 2); // "number_format() expects parameter 1 to be float, string given"
             $product_sku = sanitize_text_field($data[1]);
             $product_type = 'simple';
-            $product_tags = array_map('sanitize_text_field', explode(',', $data[5]));
-            $product_categories = array_map('sanitize_text_field', explode(',', $data[6]));
+
+            if(!empty($data[5])) {
+                $product_tags = array_map('sanitize_text_field', explode(',', $data[5]));
+            } else {
+                $product_tags = [];
+            }
+
+            if(!empty($data[6])) {
+                $product_categories = array_map('sanitize_text_field', explode(',', $data[6]));
+            } else {
+                $product_categories = [];
+            }
+            
             $image_url = $data[3];
             $post_name = sanitize_title($product_name);
             $time = strtotime('tomorrow');
@@ -153,12 +166,17 @@ function handle_csv_import($csv_file_path, $import_type) {
                     // Cập nhật hình ảnh từ URL nếu có
                     if ($image_url !== '') {
                         $image_id = attachment_url_to_postid($image_url);
-                        if ($image_id) {
-                            $thub_check = update_post_meta($existing_product_id, '_thumbnail_id', $image_id);
-                            if($thub_check) {
+                        if ($image_id1) {
+                            $get_thumbnail_id = get_post_meta($existing_product_id, '_thumbnail_id', true);
+                            if($get_thumbnail_id != $image_id) {
+                                $thub_check = update_post_meta($existing_product_id, '_thumbnail_id', $image_id);
+                                if($thub_check) {
+                                    $flag++;
+                                } else {
+                                    $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                                }
+                            } else{
                                 $flag++;
-                            } else {
-                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
                             }
                         } else {
                             $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not get image id';
@@ -282,10 +300,10 @@ function handle_csv_import($csv_file_path, $import_type) {
                             )
                         );
 
-                        if($check_update_status) {
+                        if($check_sku) {
                             $flag++;
                         } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update';
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update sku';
                         }
                     } else {
                         $import_results['errors'][$count_loop][] = 'The product already exists SKU '. $product_sku;
@@ -326,11 +344,23 @@ function handle_csv_import($csv_file_path, $import_type) {
                     // Chèn hình ảnh từ URL
                     $image_id = attachment_url_to_postid($image_url);
                     if ($image_id) {
-                        $check_thumbnail_id = update_post_meta($product_id, '_thumbnail_id', $image_id);
-                        if($check_thumbnail_id) {
-                            $flag++;
+                        $image_post = $wpdb->get_row(
+                            $wpdb->prepare(
+                                "SELECT * FROM {$wpdb->posts} WHERE ID = %d AND post_type = %s",
+                                $image_id,
+                                'attachment'
+                            )
+                        );
+
+                        if ($image_post) {
+                            $check_thumbnail_id = update_post_meta($product_id, '_thumbnail_id', $image_id);
+                            if($check_thumbnail_id) {
+                                $flag++;
+                            } else {
+                                $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                            }
                         } else {
-                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . ' not update thumbnail';
+                            $import_results['errors'][$count_loop][] = 'Product with SKU ' . $product_sku . 'Invalid image URL or not an attachment';
                         }
                     } else {
                         $import_results['errors'][$count_loop][] = 'Product not found image_id with SKU'. $product_sku;
@@ -426,7 +456,7 @@ function handle_csv_import($csv_file_path, $import_type) {
         return $import_results; // Trả về thông tin kết quả import
     } catch (Exception $e) {
         $import_results['imports'] = false;
-        $import_results['errors'] = "Error: " . $e->getMessage();
+        $import_results['errors'][][] = "Error: " . $e->getMessage();
         return $import_results; // Trả về thông tin kết quả import với lỗi
     }
 }

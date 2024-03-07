@@ -14,19 +14,38 @@ jQuery(document).ready(function($) {
             beforeSend: function() {
                 // Hiển thị thông báo hoặc tiến trình loading
                 $('#upload_status').html('<i class="fas fa-spinner fa-spin"></i> Uploading...');
+                $('#import_result').html('');
+                $('#import_errors').html('');
             },
             success: function(response) {
                 // Xử lý kết quả sau khi upload thành công
-                if (response.imports) {
-                    if (response.success) {
-                        $('#upload_status').html('<i class="fas fa-check-circle"></i> Import completed successfully.');
-                    } else {
-                        $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + response.data);
+                $('#upload_status').html('<i class="fas fa-check-circle"></i> Import completed successfully.');
+                //console.log(response); // Log response để kiểm tra trong console
+                
+                if (response.success) {
+                    // Xử lý khi thành công
+                    var data = response.data;
+                    var success_count = data.success_count;
+                    var errors = data.errors;
+
+                    if (success_count > 0) {
+                        $('#import_result').html('Imported ' + success_count + ' products successfully.');
+                    }
+                    
+                    if (errors.length > 0) {
+                        var errorHtml = '<ul>';
+                        $.each(errors, function(index, error) {
+                            $.each(error, function(index_line, error_line) {
+                                errorHtml += '<li>' + error_line + '</li>';
+                            });
+                        });
+                        errorHtml += '</ul>';
+                        $('#import_errors').html(errorHtml);
                     }
                 } else {
-                    $('#upload_status').html('<i class="fas fa-exclamation-circle"></i> Error: ' + response.errors);
+                    // Hiển thị lỗi chi tiết
+                    $('#upload_status').html('<i class="fas fa-exclamation-circle"></i>Error: '+ response.data);
                 }
-                console.log(response);
             },
             error: function(xhr, status, error) {
                 // Xử lý lỗi
