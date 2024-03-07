@@ -3,7 +3,7 @@ If you want to import simple woocommerce products with images uploaded to wordpr
 
 It's best to take a look at the demo.csv file included with the plugin to better understand the required fields.
 
-Currently you can import Type, SKU, title, Images, Regular price, Tags, Categories, Description, Short Description, meta:rank_math_focus_keyword. If you don't want any field, you can leave it blank, but it's best not to leave the SKU blank because the delete, update, and private features for CSV check the condition that there is a SKU.
+Currently you can import: Type, SKU, Title, Images, Regular Price, Tags, Categories, Description, Short Description, Meta:rank_math_focus_keyword. If you don't want any field, you can leave it blank, but it's best not to leave the SKU blank because the delete, update, and private features for CSV check the condition that there is a SKU.
 
 The plugin's goal is to be fast, lightweight, and easy to use.
 
